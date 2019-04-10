@@ -26,6 +26,7 @@ async def create_pool(loop, **kw):
         loop=loop
     )
 
+#aiomysql.DictCursor,可以将结果变为dict格式
 async def select(sql, args, size=None):
     log(sql, args)
     global __pool
@@ -37,7 +38,7 @@ async def select(sql, args, size=None):
             else:
                 rs = await cur.fetchall()
         logging.info('rows returned: %s' % len(rs))
-        return rs
+        return rs#返回查询结果，元素是tuple的list
 
 async def execute(sql, args, autocommit=True):
     log(sql)
@@ -45,7 +46,8 @@ async def execute(sql, args, autocommit=True):
         if not autocommit:
             await conn.begin()
         try:
-            async with conn.cursor(aiomysql.DictCursor) as cur:
+		# 因为execute类型sql操作返回结果只有行号，不需要dict
+            async with conn.cursor() as cur:
                 await cur.execute(sql.replace('?', '%s'), args)
                 affected = cur.rowcount
             if not autocommit:
@@ -134,6 +136,9 @@ class ModelMetaclass(type):
         attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primaryKey)
         return type.__new__(cls, name, bases, attrs)
 
+# 基于字典查询形式
+# Model从dict继承，拥有字典的所有功能，同时实现特殊方法__getattr__和__setattr__，能够实现属性操作
+# 实现数据库操作的所有方法，定义为class方法，所有继承自Model都具有数据库操作方法
 class Model(dict, metaclass=ModelMetaclass):
 
     def __init__(self, **kw):
@@ -160,7 +165,7 @@ class Model(dict, metaclass=ModelMetaclass):
                 logging.debug('using default value for %s: %s' % (key, str(value)))
                 setattr(self, key, value)
         return value
-
+ # 类方法有类变量cls传入，从而可以用cls做一些相关的处理。并且有子类继承时，调用该类方法时，传入的类变量cls是子类，而非父类。
     @classmethod
     async def findAll(cls, where=None, args=None, **kw):
         ' find objects by where clause. '
@@ -186,7 +191,8 @@ class Model(dict, metaclass=ModelMetaclass):
             else:
                 raise ValueError('Invalid limit value: %s' % str(limit))
         rs = await select(' '.join(sql), args)
-        return [cls(**r) for r in rs]
+        return [cls(**r) for r in rs]# **r 是关键字参数，构成了一个cls类的列表，其实就是每一条记录对应的类实例
+		#相当于[User(field1, field2...),User(field1, field2...), User(field1, field2...)] 返回一个model的实例数组
 
     @classmethod
     async def findNumber(cls, selectField, where=None, args=None):
