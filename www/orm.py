@@ -7,11 +7,15 @@ import asyncio, logging
 
 import aiomysql
 
+logging.basicConfig(level = logging.DEBUG,format = '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
 def log(sql, args=()):
-    logging.info('SQL: %s' % sql)
+    print('logging...',sql)
+    logger.info('SQL: %s' % sql)
 
 async def create_pool(loop, **kw):
-    logging.info('create database connection pool...')
+    logger.info('create database connection pool...')
     global __pool
     __pool = await aiomysql.create_pool(
         host=kw.get('host', 'localhost'),
@@ -37,7 +41,7 @@ async def select(sql, args, size=None):
                 rs = await cur.fetchmany(size)
             else:
                 rs = await cur.fetchall()
-        logging.info('rows returned: %s' % len(rs))
+        logger.info('rows returned: %s' % len(rs))
         return rs#返回查询结果，元素是tuple的list
 
 async def execute(sql, args, autocommit=True):
@@ -106,23 +110,24 @@ class ModelMetaclass(type):
         if name=='Model':
             return type.__new__(cls, name, bases, attrs)
         tableName = attrs.get('__table__', None) or name
-        logging.info('found model: %s (table: %s)' % (name, tableName))
+        logger.info('found model: %s (table: %s)' % (name, tableName))
         mappings = dict()
         fields = []
         primaryKey = None
         for k, v in attrs.items():
+            logger.info('  attrs: %s ==> %s' % (k, v))
             if isinstance(v, Field):
-                logging.info('  found mapping: %s ==> %s' % (k, v))
+                logger.info('  found mapping: %s ==> %s' % (k, v))
                 mappings[k] = v
                 if v.primary_key:
                     # 找到主键:
                     if primaryKey:
-                        raise StandardError('Duplicate primary key for field: %s' % k)
+                        raise Exception('Duplicate primary key for field: %s' % k)
                     primaryKey = k
                 else:
                     fields.append(k)
         if not primaryKey:
-            raise StandardError('Primary key not found.')
+            raise Exception('Primary key not found.')
         for k in mappings.keys():
             attrs.pop(k)
         escaped_fields = list(map(lambda f: '`%s`' % f, fields))
@@ -162,7 +167,7 @@ class Model(dict, metaclass=ModelMetaclass):
             field = self.__mappings__[key]
             if field.default is not None:
                 value = field.default() if callable(field.default) else field.default
-                logging.debug('using default value for %s: %s' % (key, str(value)))
+                logger.debug('using default value for %s: %s' % (key, str(value)))
                 setattr(self, key, value)
         return value
  # 类方法有类变量cls传入，从而可以用cls做一些相关的处理。并且有子类继承时，调用该类方法时，传入的类变量cls是子类，而非父类。
@@ -219,17 +224,17 @@ class Model(dict, metaclass=ModelMetaclass):
         args.append(self.getValueOrDefault(self.__primary_key__))
         rows = await execute(self.__insert__, args)
         if rows != 1:
-            logging.warn('failed to insert record: affected rows: %s' % rows)
+            logger.warning('failed to insert record: affected rows: %s' % rows)
 
     async def update(self):
         args = list(map(self.getValue, self.__fields__))
         args.append(self.getValue(self.__primary_key__))
         rows = await execute(self.__update__, args)
         if rows != 1:
-            logging.warn('failed to update by primary key: affected rows: %s' % rows)
+            logger.warning('failed to update by primary key: affected rows: %s' % rows)
 
     async def remove(self):
         args = [self.getValue(self.__primary_key__)]
         rows = await execute(self.__delete__, args)
         if rows != 1:
-            logging.warn('failed to remove by primary key: affected rows: %s' % rows)
+            logger.warning('failed to remove by primary key: affected rows: %s' % rows)
